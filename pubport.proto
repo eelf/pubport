@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+option go_package = "github.com/eelf/pubport";
+
+message Data {
+    uint64 stream = 1;
+    bytes bytes = 2;
+}
+service PubPort {
+    rpc Tcp(stream Data) returns(stream Data);
+}
