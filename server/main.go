@@ -26,6 +26,9 @@ func serve(stream uint64, cl net.Conn, server pubport.PubPort_TcpServer, ch chan
 				err = server.Send(&pubport.Data{
 					Stream: stream,
 				})
+				if err != nil {
+					log.Println("send", err)
+				}
 				close(ch)
 				return
 			}
@@ -73,47 +76,42 @@ func (p PubPortServer) Tcp(server pubport.PubPort_TcpServer) error {
 	m := map[uint64]chan []byte{}
 
 	go func() {
-		defer ln.Close()
-		defer func() {
-			for _, ch := range m {
-				close(ch)
-			}
-		}()
 		for {
-			d, err := server.Recv()
+			cl, err := ln.Accept()
 			if err != nil {
-				log.Println("recv", err)
+				log.Println("Accept", err)
 				return
 			}
 
-			ch, ok := m[d.GetStream()]
-			if !ok {
-				log.Println("no dst", d.GetStream())
-				return
-			}
-			select {
-			case ch <- d.GetBytes():
-			default:
-				log.Println("ch closed?")
-				return
-			}
+			ch := make(chan []byte)
+			m[stream] = ch
+
+			streamLocal := stream
+			go serve(streamLocal, cl, server, ch, func() {
+				delete(m, streamLocal)
+			})
+			stream++
 		}
 	}()
 
 	for {
-		cl, err := ln.Accept()
+		d, err := server.Recv()
 		if err != nil {
-			return err
+			log.Println("recv", err)
+			return nil
 		}
 
-		ch := make(chan []byte)
-		m[stream] = ch
-
-		streamLocal := stream
-		go serve(streamLocal, cl, server, ch, func() {
-			delete(m, streamLocal)
-		})
-		stream++
+		ch, ok := m[d.GetStream()]
+		if !ok {
+			log.Println("no dst", d.GetStream())
+			return nil
+		}
+		select {
+		case ch <- d.GetBytes():
+		default:
+			log.Println("ch closed?")
+			return nil
+		}
 	}
 }
 
