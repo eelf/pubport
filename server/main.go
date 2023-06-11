@@ -19,40 +19,39 @@ func serve(stream uint64, cl net.Conn, server pubport.PubPort_TcpServer, ch chan
 	defer cl.Close()
 	defer f()
 	go func() {
-		buf := make([]byte, 4<<10)
-		for {
-			n, err := cl.Read(buf)
-			if err != nil {
-				err = server.Send(&pubport.Data{
-					Stream: stream,
-				})
+		for b := range ch {
+			for len(b) != 0 {
+				n, err := cl.Write(b)
 				if err != nil {
-					log.Println("send", err)
+					log.Println("write", err)
+					return
 				}
-				close(ch)
-				return
-			}
-
-			err = server.Send(&pubport.Data{
-				Stream: stream,
-				Bytes:  buf[:n],
-			})
-			if err != nil {
-				close(ch)
-				log.Println("send", err)
-				return
+				b = b[n:]
 			}
 		}
+
 	}()
 
-	for b := range ch {
-		for len(b) != 0 {
-			n, err := cl.Write(b)
+	buf := make([]byte, 4<<10)
+	for {
+		n, err := cl.Read(buf)
+		if err != nil {
+			err = server.Send(&pubport.Data{
+				Stream: stream,
+			})
 			if err != nil {
-				log.Println("write", err)
-				return
+				log.Println("send", err)
 			}
-			b = b[n:]
+			return
+		}
+
+		err = server.Send(&pubport.Data{
+			Stream: stream,
+			Bytes:  buf[:n],
+		})
+		if err != nil {
+			log.Println("send", err)
+			return
 		}
 	}
 }
@@ -89,6 +88,7 @@ func (p PubPortServer) Tcp(server pubport.PubPort_TcpServer) error {
 			streamLocal := stream
 			go serve(streamLocal, cl, server, ch, func() {
 				delete(m, streamLocal)
+				close(ch)
 			})
 			stream++
 		}
@@ -106,12 +106,7 @@ func (p PubPortServer) Tcp(server pubport.PubPort_TcpServer) error {
 			log.Println("no dst", d.GetStream())
 			return nil
 		}
-		select {
-		case ch <- d.GetBytes():
-		default:
-			log.Println("ch closed?")
-			return nil
-		}
+		ch <- d.GetBytes()
 	}
 }
 
