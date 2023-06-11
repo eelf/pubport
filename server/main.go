@@ -74,6 +74,11 @@ func (p PubPortServer) Tcp(server pubport.PubPort_TcpServer) error {
 
 	go func() {
 		defer ln.Close()
+		defer func() {
+			for _, ch := range m {
+				close(ch)
+			}
+		}()
 		for {
 			d, err := server.Recv()
 			if err != nil {
